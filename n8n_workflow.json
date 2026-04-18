@@ -1,0 +1,122 @@
+{
+  "name": "Company Plant Lookup",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ce2261a8-ba2c-49d3-8d4b-7d0126324ab0",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "webhookId": "ce2261a8-ba2c-49d3-8d4b-7d0126324ab0"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-opus-4-5-20251101\",\n  \"max_tokens\": 4096,\n  \"system\": \"You are a manufacturing intelligence researcher specializing in North American industrial facilities. Your job is to return verified, factual data about company plant locations.\\n\\nCRITICAL ACCURACY RULES:\\n1. ONLY include plants you are highly confident exist — do NOT guess or hallucinate locations.\\n2. If a facility's exact city is uncertain, use the most likely city but lower your count in estimated_plants accordingly.\\n3. Include ALL subsidiaries and acquired brands under the same parent.\\n4. Warehouses, distribution centers, and offices do NOT count as plants — manufacturing/production only.\\n5. For lat/lng, use the city-center coordinates if the exact address is unknown. Never make up coordinates.\\n6. It is far better to return 5 verified plants than 12 unverified ones.\\n\\nReturn ONLY raw JSON — no markdown, no code fences, no explanation. Use exactly this schema:\\n{\\n  \\\"company_name\\\": \\\"Official full company name\\\",\\n  \\\"employees\\\": \\\"Estimated total US+Canada headcount (e.g. ~4,500)\\\",\\n  \\\"ownership\\\": \\\"Public / Private / Subsidiary of [Parent]\\\",\\n  \\\"estimated_plants\\\": \\\"Your best-confidence integer count of US+Canada manufacturing plants\\\",\\n  \\\"plants\\\": [\\n    {\\n      \\\"parent_company\\\": \\\"Ultimate parent company name\\\",\\n      \\\"company_name\\\": \\\"Subsidiary or facility name shown on the building\\\",\\n      \\\"city_state\\\": \\\"City, ST (e.g. Detroit, MI or Toronto, ON)\\\",\\n      \\\"products\\\": \\\"Specific products made here (e.g. corrugated board, shrink wrap)\\\",\\n      \\\"final_product\\\": \\\"End-use category (e.g. Packaging Equipment, Food Containers)\\\",\\n      \\\"lat\\\": 0.0,\\n      \\\"lng\\\": 0.0\\n    }\\n  ]\\n}\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Research all manufacturing plants, production facilities, and factories for the company: {{ $json.body.company }}\\n\\nFocus on US and Canada only. Include plants owned by subsidiaries and acquired brands. Return only the JSON — nothing else.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0002-0002-0002-000000000002",
+      "name": "Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the text content from Claude's response\nconst response = $input.first().json;\nconst rawText = response.content?.[0]?.text ?? '';\n\n// Strip any accidental markdown fences\nconst cleaned = rawText\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/```\\s*$/i, '')\n  .trim();\n\nlet data;\ntry {\n  data = JSON.parse(cleaned);\n} catch (e) {\n  // If JSON parse fails, return a structured error so the frontend shows it\n  return [{\n    json: {\n      error: true,\n      message: 'Failed to parse Claude response',\n      raw: rawText.slice(0, 500)\n    }\n  }];\n}\n\n// Ensure required top-level fields exist\ndata.company_name    = data.company_name    ?? 'Unknown';\ndata.employees       = data.employees       ?? 'Unknown';\ndata.ownership       = data.ownership       ?? 'Unknown';\ndata.estimated_plants = data.estimated_plants ?? (data.plants?.length ?? 0).toString();\ndata.plants          = Array.isArray(data.plants) ? data.plants : [];\n\n// Sanitize each plant entry\ndata.plants = data.plants.map((p, i) => ({\n  parent_company: p.parent_company ?? data.company_name,\n  company_name:   p.company_name   ?? data.company_name,\n  city_state:     p.city_state     ?? '—',\n  products:       p.products       ?? '—',\n  final_product:  p.final_product  ?? '—',\n  lat:  typeof p.lat === 'number' ? p.lat : null,\n  lng:  typeof p.lng === 'number' ? p.lng : null,\n}));\n\nreturn [{ json: data }];"
+      },
+      "id": "a1b2c3d4-0003-0003-0003-000000000003",
+      "name": "Parse & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "a1b2c3d4-0004-0004-0004-000000000004",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1020, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude API": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
